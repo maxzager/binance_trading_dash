@@ -5,6 +5,10 @@ import hashlib
 import time
 import os
 import json
+import dash
+from dash import html, dcc, Input, Output, State
+import dash_bootstrap_components as dbc
+
 
 #### Conectividad
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
@@ -172,10 +176,6 @@ def get_last_price(asset, base='USDT'):
         print(f"Failed to fetch last price for {asset}. HTTP status code: {response.status_code}")
         return None
 #############################################
-# Import necessary libraries
-import dash
-from dash import html, dcc, Input, Output, State
-import dash_bootstrap_components as dbc
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])  # Using a dark theme
 
@@ -356,4 +356,4 @@ def update_balances_table_and_chart(n_intervals):
 
 ################
 if __name__ == '__main__':
-    app.run_server(debug=True, host='0.0.0.0', port=8080)
+    app.run_server(os.getenv("HOST", "0.0.0.0"), port=os.getenv("PORT", 8080))
