@@ -15,7 +15,12 @@ BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_SECRET_KEY')
 PIN = os.getenv('PIN')
 
-BASE_URL = "https://api.binance.com"
+# Debugging: print environment variables to ensure they are set correctly
+print(f"BINANCE_API_KEY: {BINANCE_API_KEY}")
+print(f"BINANCE_API_SECRET: {BINANCE_API_SECRET}")
+print(f"PIN: {PIN}")
+
+ASE_URL = "https://api.binance.com"
 
 #### Funciones
 def ping_binance():
@@ -60,7 +65,6 @@ def headers():
     }
 
 def place_market_order(symbol, quantity, side):
-    """Place a market order."""
     params = {
         'symbol': symbol,
         'side': side,
@@ -70,11 +74,14 @@ def place_market_order(symbol, quantity, side):
     }
     params['signature'] = sign_request(params)
     url = BASE_URL + "/api/v3/order"
-    response = requests.post(url, headers=headers(), params=params)
-    if response.status_code == 200:
+    try:
+        response = requests.post(url, headers=headers(), params=params)
+        response.raise_for_status()  # Raise an exception for HTTP errors
         print("Order placed successfully:", response.json())
-    else:
-        print("Failed to place order. Response:", response.json())
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to place order. Exception: {e}")
+        if response:
+            print("Response:", response.json())
     return response.json()
 
 def place_limit_order(symbol, quantity, price, side):
@@ -151,29 +158,35 @@ def oco_short_btcusdt(target_price, stop_price):
 
 
 ## 3.5
+
 def get_all_balances():
     params = {
         'timestamp': get_adjusted_timestamp()
     }
     params['signature'] = sign_request(params)
     url = f"{BASE_URL}/api/v3/account"
-    response = requests.get(url, headers=headers(), params=params)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, headers=headers(), params=params)
+        response.raise_for_status()
         balances = response.json().get('balances', [])
         return balances
-    else:
-        print(f"Failed to fetch balances, HTTP status code: {response.status_code}")
-        print("Response:", response.json())
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to fetch balances. Exception: {e}")
+        if response:
+            print("Response:", response.json())
         return []
     
 def get_last_price(asset, base='USDT'):
     url = f"{BASE_URL}/api/v3/ticker/price"
     params = {'symbol': f"{asset}{base}"}
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
         return float(response.json()['price'])
-    else:
-        print(f"Failed to fetch last price for {asset}. HTTP status code: {response.status_code}")
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to fetch last price for {asset}. Exception: {e}")
+        if response:
+            print("Response:", response.json())
         return None
 #############################################
 
@@ -295,60 +308,60 @@ def handle_oco_order(n_clicks, target_price, stop_price, pin, symbol=None):
     Input('interval-component', 'n_intervals')
 )
 def update_balances_table_and_chart(n_intervals):
-    balances = get_all_balances()
-    print("Balances:", balances) 
-    if balances:
-        # Filter balances with non-zero values
-        balances = [balance for balance in balances if float(balance['free']) > 0]
+    try:
+        balances = get_all_balances()
+        print("Balances:", balances) 
+        if balances:
+            balances = [balance for balance in balances if float(balance['free']) > 0]
 
-        # Prepare table data
-        table_data = []
-        for balance in balances:
-            table_data.append(html.Tr([
-                html.Td(balance['asset']),
-                html.Td(balance['free']),
-                html.Td(balance['locked'])
-            ]))
-        table = dbc.Table([
-            html.Thead([
-                html.Tr([
-                    html.Th("Asset"),
-                    html.Th("Free"),
-                    html.Th("Locked")
-                ])
-            ]),
-            html.Tbody(table_data)
-        ], bordered=True, striped=True, hover=True, responsive=True)
+            table_data = []
+            for balance in balances:
+                table_data.append(html.Tr([
+                    html.Td(balance['asset']),
+                    html.Td(balance['free']),
+                    html.Td(balance['locked'])
+                ]))
+            table = dbc.Table([
+                html.Thead([
+                    html.Tr([
+                        html.Th("Asset"),
+                        html.Th("Free"),
+                        html.Th("Locked")
+                    ])
+                ]),
+                html.Tbody(table_data)
+            ], bordered=True, striped=True, hover=True, responsive=True)
 
-        # Prepare pie chart data
-        labels = [balance['asset'] for balance in balances]
-        values = [float(balance['free']) for balance in balances]
-        # Normalize balances in USDT
-        usdt_prices = {asset: get_last_price(asset) for asset in labels}
-        print("Downloaded values for each coin:")
-        for asset, price in usdt_prices.items():
-            print(f"{asset}: {price}")
-        # Fallback mechanism for fetching last price
-        for asset in labels:
-            if asset not in usdt_prices:
-                # Use a default value or skip normalization for the asset
-                usdt_prices[asset] = 1  # Defaulting to 1 for now
-        # Ignore assets with failed last price fetch or 'ETHW'
-        usdt_prices = {asset: price for asset, price in usdt_prices.items() if price is not None and asset != 'ETHW'}
-        # Normalize balances in USDT for assets with available prices
-        values_in_usdt = [value * usdt_prices[asset] for value, asset in zip(values, labels) if asset in usdt_prices]
-        print("Pie Chart Labels:", labels)  # Check if labels are retrieved correctly
-        print("Pie Chart Values in USDT:", values_in_usdt)  # Check if values are normalized correctly
-        pie_chart = {
-            'data': [
-                {'labels': labels, 'values': values_in_usdt, 'type': 'pie'}
-            ],
-            'layout': {
-                'title': 'Asset Balances'
+            labels = [balance['asset'] for balance in balances]
+            values = [float(balance['free']) for balance in balances]
+
+            usdt_prices = {asset: get_last_price(asset) for asset in labels}
+            print("Downloaded values for each coin:")
+            for asset, price in usdt_prices.items():
+                print(f"{asset}: {price}")
+
+            for asset in labels:
+                if asset not in usdt_prices:
+                    usdt_prices[asset] = 1
+
+            usdt_prices = {asset: price for asset, price in usdt_prices.items() if price is not None and asset != 'ETHW'}
+            values_in_usdt = [value * usdt_prices[asset] for value, asset in zip(values, labels) if asset in usdt_prices]
+            print("Pie Chart Labels:", labels)
+            print("Pie Chart Values in USDT:", values_in_usdt)
+
+            pie_chart = {
+                'data': [
+                    {'labels': labels, 'values': values_in_usdt, 'type': 'pie'}
+                ],
+                'layout': {
+                    'title': 'Asset Balances'
+                }
             }
-        }
 
-        return table, pie_chart
+            return table, pie_chart
+
+    except Exception as e:
+        print(f"Error in update_balances_table_and_chart: {e}")
 
     return dash.no_update, dash.no_update
 
