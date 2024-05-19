@@ -220,7 +220,7 @@ app.layout = dbc.Container([
     ]),
     dcc.Interval(
         id='interval-component',
-        interval=60 * 1000,  # in milliseconds
+        interval=60 * 100000,  # in milliseconds
         n_intervals=0
     )
 ], fluid=True, className='bg-dark') 
