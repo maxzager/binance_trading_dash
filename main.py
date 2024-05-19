@@ -1,16 +1,13 @@
-#### Librerias
 import requests
 import hmac
 import hashlib
 import time
 import os
-import json
 import dash
-from dash import html, dcc, Input, Output, State
+from dash import html, dcc, Output, Input, State
 import dash_bootstrap_components as dbc
 
-
-#### Conectividad
+# Conectividad
 BINANCE_API_KEY = os.getenv('BINANCE_API_KEY')
 BINANCE_API_SECRET = os.getenv('BINANCE_API_SECRET')
 PIN = os.getenv('PIN')
@@ -22,47 +19,39 @@ print(f"PIN: {PIN}")
 
 BASE_URL = "https://api.binance.com"
 
-#### Funciones
-def ping_binance():
-    """Ping Binance API to check the connectivity."""
-    url = f"{BASE_URL}/api/v3/ping"
-    response = requests.get(url, headers=headers())
-    if response.status_code == 200:
-        print("Connection successful.")
-    else:
-        print(f"Connection failed with status code: {response.status_code}")
-
-
-# Function to get the server time
-def get_server_time():
-    url = BASE_URL + "/api/v3/time"
-    response = requests.get(url)
-    server_time = response.json().get('serverTime')
-    return server_time
-
-# Function to calculate the drift between local and server time
-def get_time_drift():
-    local_timestamp = int(time.time() * 1000)
-    server_timestamp = get_server_time()
-    return server_timestamp - local_timestamp
-
-# Function to get the adjusted timestamp
-def get_adjusted_timestamp():
-    drift = get_time_drift()
-
-    adjusted_timestamp = int(time.time() * 1000) + drift
-    return adjusted_timestamp
-
-def sign_request(data):
-    query_string = '&'.join([f"{key}={value}" for key, value in data.items()])
-    signature = hmac.new(BINANCE_API_SECRET.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
-    return signature
-
 def headers():
     return {
         'X-MBX-APIKEY': BINANCE_API_KEY,
         'Content-Type': 'application/x-www-form-urlencoded'
     }
+
+def get_adjusted_timestamp():
+    drift = get_time_drift()
+    adjusted_timestamp = int(time.time() * 1000) + drift
+    print(f"Adjusted Timestamp: {adjusted_timestamp}")  # Debugging
+    return adjusted_timestamp
+
+def get_time_drift():
+    local_timestamp = int(time.time() * 1000)
+    server_timestamp = get_server_time()
+    drift = server_timestamp - local_timestamp
+    print(f"Time Drift: {drift}")  # Debugging
+    return drift
+
+def get_server_time():
+    url = BASE_URL + "/api/v3/time"
+    response = requests.get(url)
+    server_time = response.json().get('serverTime')
+    print(f"Server Time: {server_time}")  # Debugging
+    return server_time
+
+def sign_request(data):
+    query_string = '&'.join([f"{key}={value}" for key, value in data.items()])
+    if BINANCE_API_SECRET is None:
+        raise ValueError("BINANCE_API_SECRET is not set")
+    signature = hmac.new(BINANCE_API_SECRET.encode('utf-8'), query_string.encode('utf-8'), hashlib.sha256).hexdigest()
+    print(f"Signature: {signature}")  # Debugging
+    return signature
 
 def place_market_order(symbol, quantity, side):
     params = {
@@ -76,7 +65,7 @@ def place_market_order(symbol, quantity, side):
     url = BASE_URL + "/api/v3/order"
     try:
         response = requests.post(url, headers=headers(), params=params)
-        response.raise_for_status()  # Raise an exception for HTTP errors
+        response.raise_for_status()
         print("Order placed successfully:", response.json())
     except requests.exceptions.RequestException as e:
         print(f"Failed to place order. Exception: {e}")
@@ -85,7 +74,6 @@ def place_market_order(symbol, quantity, side):
     return response.json()
 
 def place_limit_order(symbol, quantity, price, side):
-    """Place a limit order."""
     params = {
         'symbol': symbol,
         'side': side,
@@ -97,12 +85,20 @@ def place_limit_order(symbol, quantity, price, side):
     }
     params['signature'] = sign_request(params)
     url = BASE_URL + "/api/v3/order"
-    response = requests.post(url, headers=headers(), params=params)
-    if response.status_code == 200:
-        print("Limit order placed successfully:", response.json())
-    else:
-        print("Failed to place limit order. Response:", response.json())
-    return response.json()
+    try:
+        response = requests.post(url, headers=headers(), params=params)
+        response.raise_for_status()
+        order_response = response.json()
+        print("Limit order placed successfully:", order_response)
+        return order_response
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to place limit order. Exception: {e}")
+        if response is not None:
+            print("Response:", response.json())
+        return {"error": str(e)}
+
+
+
 
 def place_oco_order(symbol, quantity, price, stop_price, stop_limit_price, side):
     """Place an OCO order."""
@@ -118,13 +114,19 @@ def place_oco_order(symbol, quantity, price, stop_price, stop_limit_price, side)
     }
     params['signature'] = sign_request(params)
     url = BASE_URL + "/api/v3/order/oco"
-    response = requests.post(url, headers=headers(), params=params)
-    if response.status_code == 200:
-        print("OCO order placed successfully: quantity:", quantity)
-    else:
-        print("Failed to place OCO order. Response:", response.json())
-    return response.json()
-
+    try:
+        response = requests.post(url, headers=headers(), params=params)
+        response.raise_for_status()
+        order_response = response.json()
+        print("OCO order placed successfully:", order_response)
+        return order_response
+    except requests.exceptions.HTTPError as http_err:
+        print(f"HTTP error occurred: {http_err}")
+        print("Response:", response.json())
+        return response.json()
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return {"error": str(e)}
 
 
 def get_usdt_balance():
@@ -142,22 +144,18 @@ def get_usdt_balance():
         print(f"Failed to fetch balance, HTTP status code: {response.status_code}")
         print("Response:", response.json())
         return None
-
 def oco_short_btcusdt(target_price, stop_price):
     usdt_balance = get_usdt_balance()
-    btc_limit = usdt_balance/target_price
-    btc_stop = usdt_balance/stop_price
+    btc_stop = usdt_balance / stop_price
     if usdt_balance > 0:
-        print(round(btc_stop*0.99, 5))
-        response = place_oco_order('BTCUSDT', round(btc_stop*0.99,5), f'{target_price}', f'{stop_price}', f'{stop_price+100}', 'BUY')
-        print("Market order result:", response)
+        print(round(btc_stop * 0.99, 5))
+        result = place_oco_order('BTCUSDT', round(btc_stop * 0.99, 5), f'{target_price}', f'{stop_price}', f'{stop_price + 100}', 'BUY')
+        print("Market order result:", result)
+        return result
     else:
         print("Insufficient USDT balance to place market order.")
-    return response.json()
+        return {"error": "Insufficient USDT balance to place market order."}
 
-
-
-## 3.5
 
 def get_all_balances():
     params = {
@@ -169,29 +167,30 @@ def get_all_balances():
         response = requests.get(url, headers=headers(), params=params)
         response.raise_for_status()
         balances = response.json().get('balances', [])
+        print(f"Fetched Balances: {balances}")  # Debugging
         return balances
     except requests.exceptions.RequestException as e:
         print(f"Failed to fetch balances. Exception: {e}")
         if response:
             print("Response:", response.json())
         return []
-    
+
 def get_last_price(asset, base='USDT'):
     url = f"{BASE_URL}/api/v3/ticker/price"
     params = {'symbol': f"{asset}{base}"}
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
-        return float(response.json()['price'])
+        last_price = float(response.json()['price'])
+        print(f"Last Price for {asset}: {last_price}")  # Debugging
+        return last_price
     except requests.exceptions.RequestException as e:
         print(f"Failed to fetch last price for {asset}. Exception: {e}")
         if response:
             print("Response:", response.json())
         return None
-#############################################
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])  # Using a dark theme
-
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.CYBORG])
 
 app.layout = dbc.Container([
     dbc.Row([
@@ -233,10 +232,10 @@ app.layout = dbc.Container([
     ]),
     dcc.Interval(
         id='interval-component',
-        interval=60 * 100000,  # in milliseconds
+        interval=5 * 1000,  # 10 seconds for debugging purposes
         n_intervals=0
     )
-], fluid=True, className='bg-dark') 
+], fluid=True, className='bg-dark')
 
 # Callbacks for market orders
 @app.callback(
@@ -254,11 +253,15 @@ def handle_market_order(buy_clicks, sell_clicks, symbol, quantity, pin):
     else:
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if pin == PIN:
-            if button_id == "buy-market-order-button":
-                response = place_market_order(symbol, quantity, 'BUY')
-            elif button_id == "sell-market-order-button":
-                response = place_market_order(symbol, quantity, 'SELL')
-            return f"Market Order Response: status: {response['status']}, side: {response['side']}, qty: {response['executedQty']}"
+            try:
+                if button_id == "buy-market-order-button":
+                    response = place_market_order(symbol, quantity, 'BUY')
+                elif button_id == "sell-market-order-button":
+                    response = place_market_order(symbol, quantity, 'SELL')
+                return f"Market Order Response: status: {response['status']}, side: {response['side']}, qty: {response['executedQty']}"
+            except Exception as e:
+                print(f"Error in handling market order: {e}")
+                return f"Error: {e}"
         return "Invalid PIN or no action taken."
 
 # Callbacks for limit orders
@@ -278,29 +281,49 @@ def handle_limit_order(buy_clicks, sell_clicks, symbol, quantity, price, pin):
     else:
         button_id = ctx.triggered[0]['prop_id'].split('.')[0]
         if pin == PIN:
-            if button_id == "buy-limit-order-button":
-                response = place_limit_order(symbol, quantity, price, 'BUY')
-            elif button_id == "sell-limit-order-button":
-                response = place_limit_order(symbol, quantity, price, 'SELL')
-            return f"Limit Order Response: status: {response['status']}, side: {response['side']}, qty: {response['origQty']}"
+            try:
+                if button_id == "buy-limit-order-button":
+                    response = place_limit_order(symbol, quantity, price, 'BUY')
+                elif button_id == "sell-limit-order-button":
+                    response = place_limit_order(symbol, quantity, price, 'SELL')
+                # Debugging information
+                print("Limit order response:", response)
+                if response is None or 'error' in response:
+                    return f"Error: Limit order could not be placed. {response.get('error', '')}"
+                return f"Limit Order Response: status: {response.get('status')}, side: {response.get('side')}, qty: {response.get('origQty')}"
+            except Exception as e:
+                print(f"Error in handling limit order: {e}")
+                return f"Error: {e}"
         return "Invalid PIN or no action taken."
-# callback OCO orders
+
+
+
+
 @app.callback(
     Output('oco-output-container', 'children'),
     Input('oco-order-button', 'n_clicks'),
-    #State('oco-symbol-input', 'value'),
     State('oco-target-price-input', 'value'),
     State('oco-stop-price-input', 'value'),
     State('pin-input', 'value')
 )
 def handle_oco_order(n_clicks, target_price, stop_price, pin, symbol=None):
     if n_clicks > 0 and pin == PIN:
-        response = oco_short_btcusdt(target_price, stop_price)
-        return f"OCO Order Response: status: {response['status']}, side: {response['side']}, qty: {response['origQty']}"
+        try:
+            response = oco_short_btcusdt(target_price, stop_price)
+            print("OCO order response:", response)  # Debugging
+            if response is None:
+                return "Error: OCO order could not be placed."
+            if 'error' in response:
+                return f"Error: {response['error']}"
+            # Print the entire response for debugging
+            return f"OCO Order Response: {response}"
+        except Exception as e:
+            print(f"Error in handling OCO order: {e}")
+            return f"Error: {e}"
+    return "Invalid PIN or no action taken."
 
 
 
-######### 3.5
 # Implement callback to update the table and pie chart with fetched balances
 @app.callback(
     Output('balances-table', 'children'),
@@ -308,6 +331,7 @@ def handle_oco_order(n_clicks, target_price, stop_price, pin, symbol=None):
     Input('interval-component', 'n_intervals')
 )
 def update_balances_table_and_chart(n_intervals):
+    print(f"Balances Callback triggered at interval: {n_intervals}")  # Debugging
     try:
         balances = get_all_balances()
         print("Balances:", balances) 
@@ -366,7 +390,5 @@ def update_balances_table_and_chart(n_intervals):
     return dash.no_update, dash.no_update
 
 
-
-################
 if __name__ == '__main__':
     app.run_server(os.getenv("HOST", "0.0.0.0"), port=os.getenv("PORT", 8080))
