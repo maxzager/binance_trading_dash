@@ -20,7 +20,7 @@ print(f"BINANCE_API_KEY: {BINANCE_API_KEY}")
 print(f"BINANCE_API_SECRET: {BINANCE_API_SECRET}")
 print(f"PIN: {PIN}")
 
-ASE_URL = "https://api.binance.com"
+BASE_URL = "https://api.binance.com"
 
 #### Funciones
 def ping_binance():
